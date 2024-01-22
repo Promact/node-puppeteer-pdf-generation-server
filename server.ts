@@ -1,16 +1,27 @@
-// Create a nodejs based websocket api which is a wrapper around puppeteer package to generate PDF from html
-import app from 'express';
-import { createServer } from 'http';
-import ws from 'ws';
-import puppeteer from 'puppeteer';
+import express from 'express';
+import http from 'node:http';
+import WebSocket from 'ws';
+import puppeteer, { PDFOptions } from 'puppeteer';
 
-const server = createServer(app);
-const wss = new ws.Server({ server });
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
-wss.on('connection', async (ws) => {
-wss.on('message', async (message) => {
-    const { html, options } = JSON.parse(message.toString());
-    const browser = await puppeteer.launch({          
+wss.on('connection', (ws: WebSocket) => {
+    ws.on('message', async (message: string) => {
+        try {
+            // Generate PDF from HTML
+            const { html, options } = JSON.parse(message.toString());
+            const pdfBuffer = await htmlToPdf(html, options);
+            ws.send(pdfBuffer);
+        } catch (error) {
+            ws.send(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    });
+});
+
+async function htmlToPdf(html: string, options: PDFOptions | undefined): Promise<Buffer> {
+    const browser = await puppeteer.launch({
         args: [
             "--headless",
             "--disable-gpu",
@@ -21,12 +32,15 @@ wss.on('message', async (message) => {
     });
     const page = await browser.newPage();
     await page.setContent(html);
-    const pdf = await page.pdf(options ?? {
+    const pdfBuffer = await page.pdf(options ?? {
         printBackground: true,
         format: 'A4'
     });
     await browser.close();
-    wss.send(pdf);
-});
-});
+    return pdfBuffer;
+}
 
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Server is listening on port ${PORT}`);
+});
